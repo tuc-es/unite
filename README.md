@@ -127,3 +127,22 @@ The resulting UVW has 15 states, as the positive examples are not sufficient to 
 Experimental results
 =====================
 The paper describing the approach from tool contains the experimental results. Further details are available in this repository in the `docs/detailsOfTheExperiments.pdf` file.
+
+
+Learning from finite traces
+=====================
+The tool also has two optional parameters to enable learning from finite traces. Two variants are available:
+
+1. In the first variant, triggered by passing `-s` as additional parameter to the `src/ParetoBasedEnumerator/solver` tool, all rejecting states self-loop on all possible characters. This enforces the learned UVW to have a safety language. The learned UVW is the strongest one (with the given chain length) for which the rejecting states are not reached after any positive example or any of their prefixes.
+
+2. In the second variant, triggered by passing `-f` as additional parameter to the `src/ParetoBasedEnumerator/solver`, the tool learns universal very-weak automata over finite words.
+
+In both cases, the positive example lines in the input file do not have a space, and there is no lasso cycle given. Note that empty lines are not ignored in this mode, as an empty line signifies that the empty word should be accepted (and a newline character at the end of the file counts as empty line). 
+
+For instance, the tool can be run on a simple example included in the repository with:
+
+```
+cat examples/safety_test.txt | src/ParetoBasedEnumerator/solver /dev/stdin -c 2 -l 10000 -s | src/ChainsToUVWOptimizer/chainMerger.py | dot -Tpdf -o output.pdf
+```
+
+Note that the `chainMerger` tool for post-processing the UVW is not geared towards any of these two cases. However, we employ a trick to use it anyway. For this trick, we introduce a special "end of finite word" character that is assumed to be repeated infinitely often at the end of the finite prefix. Hence, the output is a UVW over infinite words and the `chainMerger` tool is applicable. Note that if the `Nof characters` in the input file is a power of two, the added "end of the finite word" character leads to the addition of an atomic proposition. 

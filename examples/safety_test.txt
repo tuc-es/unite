@@ -1,0 +1,4 @@
+Learning problem with character width: 1
+Nof characters: 2
+010
+101

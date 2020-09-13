@@ -31,7 +31,18 @@ void Learner::learn(unsigned int uvwChainLength) {
 
     unsigned int nofBitsPerChain = problem.getNofLetters()*(2*uvwChainLength-1);
     std::vector<std::pair<int,int> > limits(nofBitsPerChain);
-    for (unsigned int i=0;i<nofBitsPerChain;i++) limits[i] = std::pair<int,int>(0,2);
+    for (unsigned int i=0;i<nofBitsPerChain;i++) limits[i] = std::pair<int,int>(0,1);
+
+    // Safety case: Modify limits so that the "end of word" character is the only one in the loop, and only there.
+    if (problem.getSafetyMode()!=LIVENESS) {
+        for (unsigned int i=0;i<2*uvwChainLength-1;i++) {
+            limits[i*problem.getNofLetters()+problem.getNofLetters()-1] = std::pair<int,int>(1,1);
+        }
+        for (unsigned int i=0;i<problem.getNofLetters()-1;i++) {
+            limits[problem.getNofLetters()*(2*uvwChainLength-2)+i] = (problem.getSafetyMode()==FINITEWORDS)?std::pair<int,int>(1,1):std::pair<int,int>(0,0);
+        }
+        limits[limits.size()-1] = std::pair<int,int>(0,0);
+    }
 
     // Define model checking function
     std::function<bool(const std::vector<int> &)> modelCheckingFn = [this,uvwChainLength](std::vector<int> chain) {
@@ -267,6 +278,7 @@ int main(int nofArgs, const char **args) {
         std::string inputFilename = "";
         int nofLines = -1;
         unsigned int uvwChainLength = 2;
+        SafetyMode safetyMode = LIVENESS;
         for (int i=1;i<nofArgs;i++) {
             std::string thisArg = args[i];
             if (thisArg.substr(0,1)=="-") {
@@ -283,6 +295,13 @@ int main(int nofArgs, const char **args) {
                     cl >> nofLines;
                     if (cl.fail()) throw"Error: Required a valid number after '-l'";
                 }
+                else if (thisArg=="-s") {
+                    safetyMode = SAFETY;
+                }
+                else if (thisArg=="-f") {
+                    safetyMode = FINITEWORDS;
+                }
+
                 else {
                     throw std::string("Error: Did not understand parameter'")+thisArg+"'";
                 }
@@ -294,7 +313,7 @@ int main(int nofArgs, const char **args) {
         if (inputFilename.length()==0) throw "Error: No input file name given.";
 
         // Start the learner
-        LearningProblem learningProblem(inputFilename, nofLines);
+        LearningProblem learningProblem(inputFilename, nofLines, safetyMode);
         Learner learner(learningProblem,uvwChainLength);
         std::cout << "LEARNING " << learningProblem.getNofBitsPerLetter() << " " << learningProblem.getNofLetters() << std::endl;
 

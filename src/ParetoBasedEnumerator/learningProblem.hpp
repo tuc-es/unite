@@ -4,15 +4,19 @@
 #include <list>
 #include <vector>
 
+typedef enum { LIVENESS, SAFETY, FINITEWORDS } SafetyMode;
+
 class LearningProblem {
 private:
     unsigned int nofBitsPerLetter;
     unsigned int nofLetters;
+    SafetyMode safetyMode;
     std::list<std::pair<std::vector<unsigned int>,std::vector<unsigned int> > > positiveExamples;
 public:
-    LearningProblem(std::string &inputFileName, int numberOfLines);
+    LearningProblem(std::string &inputFileName, int numberOfLines, SafetyMode _safetyMode);
     inline unsigned int getNofLetters() const { return nofLetters; }
     inline unsigned int getNofBitsPerLetter() const { return nofBitsPerLetter; }
+    inline SafetyMode getSafetyMode() const { return safetyMode; }
     inline std::list<std::pair<std::vector<unsigned int>,std::vector<unsigned int> > >::const_iterator begin() const { return positiveExamples.begin(); }
     inline std::list<std::pair<std::vector<unsigned int>,std::vector<unsigned int> > >::const_iterator end() const { return positiveExamples.end(); }
 };
@@ -22,7 +26,7 @@ public:
  * @brief Loads a learning problem from disk
  * @param inputFileName
  */
-inline LearningProblem::LearningProblem(std::string &inputFileName, int numberOfLines) {
+inline LearningProblem::LearningProblem(std::string &inputFileName, int numberOfLines, SafetyMode _safetyMode) {
 
     std::ifstream inFile(inputFileName);
     if (inFile.fail()) throw "Error opening input file";
@@ -52,86 +56,160 @@ inline LearningProblem::LearningProblem(std::string &inputFileName, int numberOf
     // Sanity check: Number of letters
     if ((1UL<<nofBitsPerLetter)<nofLetters) throw "Error: More letters declared than can be formed with the given number of bits.";
 
-    // Read positive example lines
-    std::string positiveExample;
-    int nofLine = 2;
-    while (std::getline(inFile,positiveExample)) {
+    // Safety case
+    safetyMode = _safetyMode;
+    if (safetyMode != LIVENESS) {
 
-        nofLine++;
+        // Read positive example lines
+        std::string positiveExample;
+        int nofLine = 2;
+        while (std::getline(inFile,positiveExample)) {
 
-        // checks if the number of lines parameter (numberOfLines) was supplied.
-        // If so, it only reads up to numberOfLines lines
-        if (numberOfLines != -1 && nofLine > numberOfLines){
-            break;
+            nofLine++;
+
+            // checks if the number of lines parameter (numberOfLines) was supplied.
+            // If so, it only reads up to numberOfLines lines
+            if (numberOfLines != -1 && nofLine > numberOfLines){
+                break;
+            }
+            trim(positiveExample);
+
+            // Also read blank lines!!!
+            {
+
+                // Find separating space
+                size_t spacePos = positiveExample.find(" ");
+                if (spacePos!=std::string::npos) {
+                    std::ostringstream error;
+                    error << "No space allowed in positive example for safety language in line " << nofLine << "!";
+                    throw error.str();
+                }
+
+                if ((positiveExample.length() % nofBitsPerLetter)!=0) {
+                    std::ostringstream error;
+                    error << "Prefix  length is a non-multiple of the number of bits in line " << nofLine << "!";
+                    throw error.str();
+                }
+
+                positiveExamples.push_back(std::pair<std::vector<unsigned int>,std::vector<unsigned int> >(std::vector<unsigned int >(),std::vector<unsigned int>()));
+                std::vector<unsigned int> &prefix = positiveExamples.back().first;
+                std::vector<unsigned int> &cycle = positiveExamples.back().second;
+
+                // Parse prefix
+                unsigned int letter = 0;
+                for (unsigned int i=0;i<positiveExample.length();i++) {
+                    if (positiveExample[i]=='0') {
+                        // Nothing to add
+                    } else if (positiveExample[i]=='1') {
+                        letter |= (1 << ((i % nofBitsPerLetter)));
+                    } else {
+                        std::ostringstream error;
+                        error << "Non-binary literal in line " << nofLine << ", character " << i+1 << ".";;
+                        throw error.str();
+                    }
+                    if ((i%nofBitsPerLetter)==(nofBitsPerLetter-1)) {
+                        prefix.push_back(letter);
+                        letter = 0;
+                    }
+                }
+
+                // Insert suffix
+                cycle.push_back(nofLetters);
+            }
         }
-        trim(positiveExample);
-        if (positiveExample.length()>0) {
 
-            // Find separating space
-            size_t spacePos = positiveExample.find(" ");
-            if (spacePos==std::string::npos) {
-                std::ostringstream error;
-                error << "Cannot find space in positive example in line " << nofLine << "!";
-                throw error.str();
+        // Increase number of bits if needed
+        if ((1UL<<nofBitsPerLetter)==nofLetters) {
+            nofBitsPerLetter++;
+        }
+
+        // Increase number of letters -- the previous value "nofLetters" is now the "end of word" letter
+        nofLetters++;
+
+    } else {
+        // Non-safety case
+        // Read positive example lines
+        std::string positiveExample;
+        int nofLine = 2;
+        while (std::getline(inFile,positiveExample)) {
+
+            nofLine++;
+
+            // checks if the number of lines parameter (numberOfLines) was supplied.
+            // If so, it only reads up to numberOfLines lines
+            if (numberOfLines != -1 && nofLine > numberOfLines){
+                break;
             }
+            trim(positiveExample);
+            if (positiveExample.length()>0) {
 
-            // Size sanity checks
-            if ((spacePos % nofBitsPerLetter)!=0) {
-                std::ostringstream error;
-                error << "Space found at a non-multiple of the number of bits in line " << nofLine << "!";
-                throw error.str();
-            }
-
-            unsigned int nofBitsCycle = positiveExample.length()-spacePos-1;
-
-            if ((nofBitsCycle % nofBitsPerLetter)!=0) {
-                std::ostringstream error;
-                error << "Cycle length is a non-multiple of the number of bits in line " << nofLine << "!";
-                throw error.str();
-            }
-
-            positiveExamples.push_back(std::pair<std::vector<unsigned int>,std::vector<unsigned int> >(std::vector<unsigned int >(),std::vector<unsigned int>()));
-            std::vector<unsigned int> &prefix = positiveExamples.back().first;
-            std::vector<unsigned int> &cycle = positiveExamples.back().second;
-
-            // Parse prefix
-            unsigned int letter = 0;
-            for (unsigned int i=0;i<spacePos;i++) {
-                if (positiveExample[i]=='0') {
-                    // Nothing to add
-                } else if (positiveExample[i]=='1') {
-                    letter |= (1 << ((i % nofBitsPerLetter)));
-                } else {
+                // Find separating space
+                size_t spacePos = positiveExample.find(" ");
+                if (spacePos==std::string::npos) {
                     std::ostringstream error;
-                    error << "Non-binary literal in line " << nofLine << ", character " << i+1 << ".";;
+                    error << "Cannot find space in positive example in line " << nofLine << "!";
                     throw error.str();
                 }
-                if ((i%nofBitsPerLetter)==(nofBitsPerLetter-1)) {
-                    prefix.push_back(letter);
-                    letter = 0;
-                }
-            }
 
-            // Parse suffix
-            for (unsigned int i=0;i<nofBitsCycle;i++) {
-                if (positiveExample[i+spacePos+1]=='0') {
-                    // Letter should not be changed.
-                } else if (positiveExample[i+spacePos+1]=='1') {
-                    letter |= (1 << ((i % nofBitsPerLetter)));
-                } else {
+                // Size sanity checks
+                if ((spacePos % nofBitsPerLetter)!=0) {
                     std::ostringstream error;
-                    error << "Non-binary literal in line " << nofLine << ", character " << i+spacePos+2 << ".";;
+                    error << "Space found at a non-multiple of the number of bits in line " << nofLine << "!";
                     throw error.str();
                 }
-                if ((i%nofBitsPerLetter)==(nofBitsPerLetter-1)) {
-                    cycle.push_back(letter);
-                    letter = 0;
+
+                unsigned int nofBitsCycle = positiveExample.length()-spacePos-1;
+
+                if ((nofBitsCycle % nofBitsPerLetter)!=0) {
+                    std::ostringstream error;
+                    error << "Cycle length is a non-multiple of the number of bits in line " << nofLine << "!";
+                    throw error.str();
                 }
+
+                positiveExamples.push_back(std::pair<std::vector<unsigned int>,std::vector<unsigned int> >(std::vector<unsigned int >(),std::vector<unsigned int>()));
+                std::vector<unsigned int> &prefix = positiveExamples.back().first;
+                std::vector<unsigned int> &cycle = positiveExamples.back().second;
+
+                // Parse prefix
+                unsigned int letter = 0;
+                for (unsigned int i=0;i<spacePos;i++) {
+                    if (positiveExample[i]=='0') {
+                        // Nothing to add
+                    } else if (positiveExample[i]=='1') {
+                        letter |= (1 << ((i % nofBitsPerLetter)));
+                    } else {
+                        std::ostringstream error;
+                        error << "Non-binary literal in line " << nofLine << ", character " << i+1 << ".";;
+                        throw error.str();
+                    }
+                    if ((i%nofBitsPerLetter)==(nofBitsPerLetter-1)) {
+                        prefix.push_back(letter);
+                        letter = 0;
+                    }
+                }
+
+                // Parse suffix
+                for (unsigned int i=0;i<nofBitsCycle;i++) {
+                    if (positiveExample[i+spacePos+1]=='0') {
+                        // Letter should not be changed.
+                    } else if (positiveExample[i+spacePos+1]=='1') {
+                        letter |= (1 << ((i % nofBitsPerLetter)));
+                    } else {
+                        std::ostringstream error;
+                        error << "Non-binary literal in line " << nofLine << ", character " << i+spacePos+2 << ".";;
+                        throw error.str();
+                    }
+                    if ((i%nofBitsPerLetter)==(nofBitsPerLetter-1)) {
+                        cycle.push_back(letter);
+                        letter = 0;
+                    }
+                }
+
+
             }
-
-
         }
     }
+
 }
 
 
